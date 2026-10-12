@@ -1,54 +1,83 @@
-import { NextResponse } from 'next/server';
 import { GoogleGenAI } from '@google/genai';
+import { NextResponse } from 'next/server';
 
 const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
+
+const FALLBACK_MODELS = [
+  'gemini-3.8-flash',
+  'gemini-3.5-flash',
+  'gemini-3.7-flash',
+  'gemini-2.5-flash',
+  'gemini-3.8-flash-lite'
+];
 
 export async function POST(req: Request) {
   try {
     const { text, categories, customInstructions } = await req.json();
 
     if (!text) {
-      return NextResponse.json({ error: 'テキストが入力されていません' }, { status: 400 });
+      return NextResponse.json({ error: 'テキストが提供されていません。' }, { status: 400 });
     }
 
-    const categoryListStr = categories && categories.length > 0 
-      ? categories.join(', ') 
-      : '"家賃", "スーパー", "コンビニ", "ICOCA", "AMAZON", "サブスク", "ショッピング", "その他", "値引き"';
-
-    const customRuleSection = customInstructions && customInstructions.trim() !== '' 
-      ? `\n【ユーザーからの分類に関する特別ルール・指示（最優先で従ってください）】\n${customInstructions.trim()}\n`
-      : '';
-
     const prompt = `
-以下のクレジットカードや家計簿の利用明細テキストから、各明細の情報を抽出し、必ず以下のJSON配列（JSON形式）のフォーマットのみで出力してください。Markdownのバッククォート（\`\`\`jsonなど）や他の余計な文字列は一切含めず、純粋なJSON文字列だけを返してください。
+あなたは優秀な家計簿アシスタントです。
+提供されたクレジットカードやWeb明細のテキストを解析し、日付、店舗名、カテゴリ、金額を抽出してください。
 
-抽出項目:
-- date: 日付（例: "2026-06-01" または "2026/06/01" の文字列）
-- store: 店名や利用先（文字列）
-- amount: 金額（数値、カンマなし）
-- category: カテゴリ（※必ず以下の「利用可能なカテゴリ一覧」の中から最も適切なものを1つ選んで文字列で入れてください）
+利用可能なカテゴリ一覧: ${JSON.stringify(categories)}
+${customInstructions ? `ユーザーからのカスタム指示・分類ルール: ${customInstructions}` : ''}
 
-利用可能なカテゴリ一覧:
-[${categoryListStr}]
-${customRuleSection}
-対象テキスト:
+以下のJSON配列形式のみで出力してください（マークダウンのバッククォートなども含めず、純粋なJSON文字列のみを返してください）。
+[
+  {
+    "date": "YYYY/MM/DD または MM/DD",
+    "store": "店舗名",
+    "category": "カテゴリ名",
+    "amount": 金額（数値）
+  }
+]
+
+テキスト:
 ${text}
-`;
+    `;
 
-    const response = await ai.models.generateContent({
-      model: 'gemini-3.5-flash', // ★ モデルを gemini-3.5-flash に固定
-      contents: prompt,
-    });
+    let responseText = '';
+    let successfulModel = '';
+    let lastError = null;
 
-    let rawResponse = response.text || '[]';
-    rawResponse = rawResponse.replace(/```json/g, '').replace(/```/g, '').trim();
+    for (const modelName of FALLBACK_MODELS) {
+      try {
+        const response = await ai.models.generateContent({
+          model: modelName,
+          contents: prompt,
+        });
+        responseText = response.text || '';
+        if (responseText) {
+          successfulModel = modelName;
+          break;
+        }
+      } catch (err: any) {
+        console.warn(`Model ${modelName} failed:`, err.message);
+        lastError = err;
+        continue;
+      }
+    }
 
-    const data = JSON.parse(rawResponse);
-    const expenses = data.expenses || data.items || data;
+    if (!responseText) {
+      throw lastError || new Error('すべてのモデルで解析に失敗しました。');
+    }
 
-    return NextResponse.json({ expenses });
+    let cleanJsonStr = responseText.trim();
+    if (cleanJsonStr.startsWith('```json')) {
+      cleanJsonStr = cleanJsonStr.replace(/^```json/, '').replace(/```$/, '').trim();
+    } else if (cleanJsonStr.startsWith('```')) {
+      cleanJsonStr = cleanJsonStr.replace(/^```/, '').replace(/```$/, '').trim();
+    }
+
+    const expenses = JSON.parse(cleanJsonStr);
+    return NextResponse.json({ expenses, model: successfulModel });
+
   } catch (err: any) {
-    console.error('Gemini API解析エラー:', err);
-    return NextResponse.json({ error: err.message || 'AI解析に失敗しました' }, { status: 500 });
+    console.error('API Parse Error:', err);
+    return NextResponse.json({ error: err.message || 'サーバーエラーが発生しました。' }, { status: 500 });
   }
 }
