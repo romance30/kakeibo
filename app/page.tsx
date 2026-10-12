@@ -1,5 +1,4 @@
 'use client';
-
 import { useState, useEffect, useRef } from 'react';
 import { createClient } from '@supabase/supabase-js';
 import { PieChart, Pie, Cell, ResponsiveContainer, Tooltip } from 'recharts';
@@ -33,6 +32,17 @@ const COLORS = [
   '#64748b'
 ];
 
+interface ExpenseItem {
+  id: string | number;
+  date: string;
+  store: string;
+  category: string;
+  amount: number;
+  memo?: string;
+  checked?: boolean;
+  saved?: boolean;
+}
+
 export default function Home() {
   const [inputText, setInputText] = useState('');
   const [customInstructions, setCustomInstructions] = useState('');
@@ -43,8 +53,8 @@ export default function Home() {
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
   const [message, setMessage] = useState('');
-  const [sessionExpenses, setSessionExpenses] = useState<any[]>([]);
-  const [allExpenses, setAllExpenses] = useState<any[]>([]);
+  const [sessionExpenses, setSessionExpenses] = useState<ExpenseItem[]>([]);
+  const [allExpenses, setAllExpenses] = useState<ExpenseItem[]>([]);
   const [categories, setCategories] = useState<string[]>(INITIAL_CATEGORIES);
   const [isLoadedCategories, setIsLoadedCategories] = useState(false);
   const [newCategoryName, setNewCategoryName] = useState('');
@@ -91,14 +101,13 @@ export default function Home() {
       .from('expenses')
       .select('*')
       .order('date', { ascending: false });
-
     if (error) {
       console.error('データ取得エラー:', error);
     } else {
       const fetched = data || [];
       setAllExpenses(fetched);
       setSessionExpenses(
-        fetched.map((item) => ({
+        fetched.map((item: ExpenseItem) => ({
           ...item,
           checked: false,
           saved: true,
@@ -115,12 +124,10 @@ export default function Home() {
     if (!inputText.trim()) return;
     setLoading(true);
     setMessage('');
-
     const trimmedInstruction = customInstructions.trim();
     if (trimmedInstruction && !instructionHistory.includes(trimmedInstruction)) {
       setInstructionHistory([trimmedInstruction, ...instructionHistory]);
     }
-
     try {
       const res = await fetch('/api/parse', {
         method: 'POST',
@@ -131,27 +138,24 @@ export default function Home() {
           customInstructions: customInstructions
         }),
       });
-
       const data = await res.json();
       if (!res.ok) {
         const errorMsg = data.error?.message || data.error || '解析に失敗しました';
         throw new Error(errorMsg);
       }
-
       const parsedExpenses = (data.expenses || []).map((item: any) => ({
         ...item,
         checked: false,
         saved: false,
       }));
-
       setSessionExpenses((prev) => [...parsedExpenses, ...prev]);
       setMessage('AI解析が完了しました。カテゴリの確認・変更をして保存してください。');
       setInputText('');
     } catch (err: any) {
       if (err.message.includes('429') || err.message.includes('Quota exceeded')) {
-        setMessage('⚠️ APIの無料枠制限（回数オーバー）に達しました。少し時間を置いてから再度お試しください。');
+        setMessage('⚠️ APIの無料枠制限(回数オーバー)に達しました。少し時間を置いてから再度お試しください。');
       } else {
-        setMessage(`❌ エラー: ${err.message}`);
+        setMessage(`エラー: ${err.message}`);
       }
     } finally {
       setLoading(false);
@@ -182,15 +186,13 @@ export default function Home() {
     );
   };
 
-  const updateExpenseCategory = async (id: string, newCategory: string) => {
+  const updateExpenseCategory = async (id: string | number, newCategory: string) => {
     try {
       const { error } = await supabase
         .from('expenses')
         .update({ category: newCategory })
         .eq('id', id);
-
       if (error) throw error;
-
       setAllExpenses((prev) =>
         prev.map((item) => (String(item.id) === String(id) ? { ...item, category: newCategory } : item))
       );
@@ -207,13 +209,12 @@ export default function Home() {
     const updated = [...sessionExpenses];
     updated[index].category = newCategory;
     setSessionExpenses(updated);
-
     if (item.saved && item.id) {
       await updateExpenseCategory(item.id, newCategory);
     }
   };
 
-  const handleSubItemDragStart = (e: React.DragEvent, expenseId: string) => {
+  const handleSubItemDragStart = (e: React.DragEvent, expenseId: string | number) => {
     let idsToTransfer: string[] = [String(expenseId)];
     if (selectedSubItemIds.includes(String(expenseId)) && selectedSubItemIds.length > 1) {
       idsToTransfer = [...selectedSubItemIds];
@@ -225,13 +226,11 @@ export default function Home() {
   const handleDragOver = (e: React.DragEvent) => {
     e.preventDefault();
     e.dataTransfer.dropEffect = 'move';
-
     const container = scrollContainerRef.current;
     if (!container) return;
     const rect = container.getBoundingClientRect();
     const mouseY = e.clientY;
     const threshold = 40;
-
     if (mouseY - rect.top < threshold) {
       container.scrollTop -= 3;
     } else if (rect.bottom - mouseY < threshold) {
@@ -244,7 +243,6 @@ export default function Home() {
     e.stopPropagation();
     const rawData = e.dataTransfer.getData('text/plain');
     if (!rawData) return;
-
     let expenseIds: string[] = [];
     try {
       if (rawData.startsWith('[')) {
@@ -255,16 +253,13 @@ export default function Home() {
     } catch {
       expenseIds = [rawData];
     }
-
     if (expenseIds.length === 0) return;
-
     for (const id of expenseIds) {
       const targetItem = allExpenses.find((item) => String(item.id) === String(id));
       if (targetItem && targetItem.category !== targetCategory) {
         await updateExpenseCategory(id, targetCategory);
       }
     }
-
     setSelectedSubItemIds([]);
     setMessage(`${expenseIds.length}件の明細を「${targetCategory}」に移動しました。`);
   };
@@ -272,7 +267,6 @@ export default function Home() {
   const handleSaveAll = async () => {
     const unsavedItems = sessionExpenses.filter((item) => !item.saved);
     if (unsavedItems.length === 0) return;
-
     setSaving(true);
     setMessage('');
     try {
@@ -284,11 +278,10 @@ export default function Home() {
           await supabase.from('expenses').insert(rest);
         }
       }
-
-      setMessage('✨ すべてデータベースに保存しました！');
+      setMessage('すべてデータベースに保存しました!!');
       await fetchExpenses();
     } catch (err: any) {
-      setMessage(`❌ 保存エラー: ${err.message}`);
+      setMessage(`保存エラー: ${err.message}`);
     } finally {
       setSaving(false);
     }
@@ -300,7 +293,6 @@ export default function Home() {
       alert('保存する項目（チェックが入った未保存の項目）がありません。');
       return;
     }
-
     setSaving(true);
     setMessage('');
     try {
@@ -312,32 +304,26 @@ export default function Home() {
           await supabase.from('expenses').insert(rest);
         }
       }
-
-      setMessage('✅ チェックした項目をデータベースに保存しました！');
+      setMessage('✓ チェックした項目をデータベースに保存しました!');
       await fetchExpenses();
     } catch (err: any) {
-      setMessage(`❌ 保存エラー: ${err.message}`);
+      setMessage(`保存エラー: ${err.message}`);
     } finally {
       setSaving(false);
     }
   };
 
   const handleDeleteAll = async () => {
-    if (!confirm('本当にすべての登録履歴をリセットしますか？')) return;
+    if (!confirm('本当にすべての登録履歴をリセットしますか?')) return;
     try {
-      const { error } = await supabase
-        .from('expenses')
-        .delete()
-        .not('id', 'is', null);
-
+      const { error } = await supabase.from('expenses').delete().not('id', 'is', null);
       if (error) throw error;
-
       setAllExpenses([]);
       setSessionExpenses([]);
       setSelectedSubItemIds([]);
-      setMessage('🗑️ 登録をリセットしました。');
+      setMessage('登録をリセットしました。');
     } catch (err: any) {
-      setMessage(`❌ 削除エラー: ${err.message}`);
+      setMessage(`削除エラー: ${err.message}`);
     }
   };
 
@@ -349,37 +335,26 @@ export default function Home() {
       alert('すでに存在するカテゴリです。');
       return;
     }
-
     const updatedCategories = [...categories, trimmed];
     setCategories(updatedCategories);
     setNewCategoryName('');
     setMessage(`カテゴリ「${trimmed}」を追加しました。`);
-
-    for (const item of allExpenses) {
-      const storeName = item.store || '';
-      if (storeName.toLowerCase().includes(trimmed.toLowerCase()) && item.category !== trimmed) {
-        await updateExpenseCategory(item.id, trimmed);
-      }
-    }
   };
 
   const handleRenameCategory = async (oldName: string) => {
-    const newName = prompt(`「${oldName}」の新しいカテゴリ名を入力してください：`, oldName);
+    const newName = prompt(`「${oldName}」の新しいカテゴリ名を入力してください`, oldName);
     if (!newName || !newName.trim()) return;
     const trimmed = newName.trim();
     if (categories.includes(trimmed)) {
       alert('すでに存在するカテゴリ名です。');
       return;
     }
-
     try {
       const { error } = await supabase
         .from('expenses')
         .update({ category: trimmed })
         .eq('category', oldName);
-
       if (error) throw error;
-
       setCategories(categories.map((c) => (c === oldName ? trimmed : c)));
       setAllExpenses((prev) =>
         prev.map((item) => (item.category === oldName ? { ...item, category: trimmed } : item))
@@ -389,7 +364,7 @@ export default function Home() {
       );
       setMessage(`カテゴリ名を「${oldName}」から「${trimmed}」に変更しました。`);
     } catch (err: any) {
-      setMessage(`❌ カテゴリ名変更エラー: ${err.message}`);
+      setMessage(`カテゴリ名変更エラー: ${err.message}`);
     }
   };
 
@@ -399,43 +374,34 @@ export default function Home() {
       alert('これ以上カテゴリを減らすことはできません。');
       return;
     }
-    if (!confirm(`カテゴリ「${catToDelete}」を削除しますか？\n（含まれている内訳は一番近いカテゴリまたは「その他」に自動で振り分けられます）`)) {
+    if (!confirm(`カテゴリ「${catToDelete}」を削除しますか?\n(含まれている内訳は一番近いカテゴリまたは「その他」に自動で振り分けられます)`)) {
       return;
     }
-
     const remainingCategories = categories.filter((c) => c !== catToDelete);
     const targetItems = allExpenses.filter((item) => item.category === catToDelete);
-
     try {
       for (const item of targetItems) {
         const storeName = (item.store || '').toLowerCase();
-        const matchedCat = remainingCategories.find(cat => storeName.includes(cat.toLowerCase()));
+        const matchedCat = remainingCategories.find((cat) => storeName.includes(cat.toLowerCase()));
         const fallback = remainingCategories.includes('その他') ? 'その他' : remainingCategories[0];
         const bestCategory = matchedCat || fallback;
         await updateExpenseCategory(item.id, bestCategory);
       }
-
       setCategories(remainingCategories);
       setMessage(`カテゴリ「${catToDelete}」を削除し、内訳を最適なカテゴリに振り分けました。`);
     } catch (err: any) {
-      setMessage(`❌ カテゴリ削除エラー: ${err.message}`);
+      setMessage(`カテゴリ削除エラー: ${err.message}`);
     }
   };
 
-  const handleUnassignExpenseItem = async (id: string, currentCategory: string, e: React.MouseEvent) => {
+  const handleUnassignExpenseItem = async (id: string | number, currentCategory: string, e: React.MouseEvent) => {
     e.stopPropagation();
     try {
-      const { error } = await supabase
-        .from('expenses')
-        .update({ category: '' })
-        .eq('id', id);
-
+      const { error } = await supabase.from('expenses').update({ category: '' }).eq('id', id);
       if (error) throw error;
-
       setAllExpenses((prev) =>
         prev.map((item) => (String(item.id) === String(id) ? { ...item, category: '' } : item))
       );
-      
       setSessionExpenses((prev) => {
         const exists = prev.some((item) => String(item.id) === String(id));
         if (exists) {
@@ -450,11 +416,10 @@ export default function Home() {
           return prev;
         }
       });
-
       setSelectedSubItemIds((prev) => prev.filter((itemKey) => itemKey !== String(id)));
       setMessage('明細のカテゴリを解除し、再登録可能な状態にしました。');
     } catch (err: any) {
-      setMessage(`❌ 分類解除エラー: ${err.message}`);
+      setMessage(`分類解除エラー: ${err.message}`);
     }
   };
 
@@ -467,14 +432,14 @@ export default function Home() {
 
   const hasUnsavedItems = sessionExpenses.some((item) => !item.saved);
 
-  const categoryTotals = categories.reduce((acc, cat) => {
+  const categoryTotals = categories.reduce((acc: Record<string, number>, cat: string) => {
     acc[cat] = allExpenses
       .filter((item) => item.category === cat)
-      .reduce((sum, item) => sum + (Number(item.amount) || 0), 0);
+      .reduce((sum: number, item: ExpenseItem) => sum + (Number(item.amount) || 0), 0);
     return acc;
-  }, {} as Record<string, number>);
+  }, {});
 
-  const totalAmount = Object.values(categoryTotals).reduce((sum, val) => sum + val, 0);
+  const totalAmount = Object.values(categoryTotals).reduce((sum: number, val: number) => sum + val, 0);
 
   const chartData = categories
     .map((cat) => ({
@@ -484,7 +449,7 @@ export default function Home() {
     .filter((item) => item.value > 0)
     .sort((a, b) => b.value - a.value);
 
-  const monthlyDataMap = allExpenses.reduce((acc, item) => {
+  const monthlyDataMap = allExpenses.reduce((acc: Record<string, ExpenseItem[]>, item: ExpenseItem) => {
     if (!item.date) return acc;
     const dateStr = item.date.replace(/\//g, '-');
     const parts = dateStr.split('-');
@@ -496,7 +461,7 @@ export default function Home() {
       acc[yearMonthKey].push(item);
     }
     return acc;
-  }, {} as Record<string, any[]>);
+  }, {});
 
   const sortedMonths = Object.keys(monthlyDataMap).sort().reverse();
 
@@ -506,9 +471,7 @@ export default function Home() {
         <h1 className="text-3xl font-black text-center tracking-wider text-gray-900">
           KAKEIBO
         </h1>
-
         <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
-          
           {/* 左カラム */}
           <div className="lg:col-span-3 flex flex-col justify-between h-[1050px]">
             {/* 1. 目次カード */}
@@ -602,7 +565,7 @@ export default function Home() {
                           </td>
                         </tr>
                       ) : (
-                        allExpenses.map((item) => (
+                        allExpenses.map((item: ExpenseItem) => (
                           <tr key={item.id} className="border-b text-xs hover:bg-gray-50">
                             <td className="py-2 px-2 text-gray-600">{item.date}</td>
                             <td className="py-2 px-2 font-medium text-gray-800">{item.store}</td>
@@ -657,17 +620,15 @@ export default function Home() {
                 disabled={loading}
                 className="w-full bg-blue-600 text-white py-2 rounded-lg font-medium hover:bg-blue-700 transition disabled:bg-blue-300 text-xs"
               >
-                {loading ? 'AI解析中...' : '✨ AIで解析する！'}
+                {loading ? 'AI解析中...' : 'AIで解析する!!'}
               </button>
-              {message && (
-                <p className="text-xs text-center font-medium mt-0.5">{message}</p>
-              )}
+              {message && <p className="text-xs text-center font-medium mt-0.5">{message}</p>}
             </div>
 
             {/* 2. 今回の登録明細カード */}
             <div id="section-session" className="bg-white p-5 rounded-xl shadow-sm border border-gray-200 flex flex-col justify-between h-[741px] scroll-mt-6">
               <div className="space-y-3 flex-1 flex flex-col overflow-hidden">
-                <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-2 shrink-0">
+                <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-2 shrink-0">
                   <h2 className="text-sm font-bold text-gray-800">今回の登録明細</h2>
                   {sessionExpenses.length > 0 && hasUnsavedItems && (
                     <div className="flex items-center gap-2 flex-wrap">
@@ -676,14 +637,14 @@ export default function Home() {
                         disabled={saving}
                         className="bg-indigo-600 text-white px-2 py-1 rounded-lg text-[11px] font-medium hover:bg-indigo-700 transition disabled:bg-indigo-300"
                       >
-                        {saving ? '保存中...' : '✓ チェックのみ保存'}
+                        {saving ? '保存中...' : 'チェックのみ保存'}
                       </button>
                       <button
                         onClick={handleSaveAll}
                         disabled={saving}
                         className="bg-green-600 text-white px-2 py-1 rounded-lg text-[11px] font-medium hover:bg-green-700 transition disabled:bg-green-300"
                       >
-                        {saving ? '保存中...' : '🚀 すべて保存！'}
+                        {saving ? '保存中...' : 'すべて保存!!'}
                       </button>
                     </div>
                   )}
@@ -707,10 +668,12 @@ export default function Home() {
                           </td>
                         </tr>
                       ) : (
-                        sessionExpenses.map((item, index) => (
+                        sessionExpenses.map((item: ExpenseItem, index: number) => (
                           <tr
                             key={index}
-                            className={`border-b text-xs transition ${item.saved ? 'bg-gray-100 text-gray-600' : 'hover:bg-gray-50'}`}
+                            className={`border-b text-xs transition ${
+                              item.saved ? 'bg-gray-100 text-gray-600' : 'hover:bg-gray-50'
+                            }`}
                           >
                             <td className="py-2.5 px-3 text-center">
                               <input
@@ -727,19 +690,21 @@ export default function Home() {
                               <select
                                 value={item.category}
                                 onChange={(e) => handleChangeSessionCategory(index, e.target.value)}
-                                className="px-2 py-1 border border-gray-300 rounded text-xs bg-white text-gray-700 focus:ring-2 focus:ring-blue-500 shadow-2xs"
+                                className="px-2 py-1 border border-gray-300 rounded text-xs bg-white text-gray-700 focus:ring-2 focus:ring-blue-500 shadow-2xs font-semibold"
                               >
                                 <option value="">未分類</option>
-                                {categories.map((cat) => (
+                                {categories.map((cat: string) => (
                                   <option key={cat} value={cat}>
                                     {cat}
                                   </option>
                                 ))}
                               </select>
                             </td>
-                            <td className="py-2.5 px-3 text-right font-semibold">
-                              ¥{item.amount?.toLocaleString()}
-                              {item.saved && <span className="text-[10px] text-green-600 font-normal ml-1">(保存済)</span>}
+                            <td className="py-2.5 px-3 text-right">
+                              {item.amount?.toLocaleString()}
+                              {item.saved && (
+                                <span className="text-[10px] text-green-600 font-normal ml-1">(保存済)</span>
+                              )}
                             </td>
                           </tr>
                         ))
@@ -764,7 +729,6 @@ export default function Home() {
                     </span>
                   )}
                 </div>
-
                 {/* グラフ部分 */}
                 <div className="relative w-full h-44 shrink-0 flex items-center justify-center bg-gray-50 rounded-xl border border-gray-100 p-2">
                   {chartData.length === 0 ? (
@@ -773,9 +737,7 @@ export default function Home() {
                     <>
                       <ResponsiveContainer width="100%" height="100%">
                         <PieChart>
-                          <Tooltip
-                            formatter={(value: any) => `¥${Number(value).toLocaleString()}`}
-                          />
+                          <Tooltip formatter={(value: any) => `¥${Number(value).toLocaleString()}`} />
                           <Pie
                             data={chartData}
                             cx="50%"
@@ -802,16 +764,11 @@ export default function Home() {
                     </>
                   )}
                 </div>
-
                 <p className="text-[11px] text-gray-400 shrink-0">※内訳にチェックを入れると複数まとめてドラッグ&ドロップで移動できます</p>
-
                 {/* カテゴリ一覧のスクロール領域 */}
-                <div
-                  ref={scrollContainerRef}
-                  className="space-y-2 flex-1 overflow-y-auto pr-1 relative"
-                >
-                  {categories.map((cat) => {
-                    const catItems = allExpenses.filter((item) => item.category === cat);
+                <div ref={scrollContainerRef} className="space-y-2 flex-1 overflow-y-auto pr-1 relative">
+                  {categories.map((cat: string) => {
+                    const catItems = allExpenses.filter((item: ExpenseItem) => item.category === cat);
                     const isOpen = openBreakdowns[cat];
                     return (
                       <div
@@ -824,10 +781,8 @@ export default function Home() {
                           onClick={() => toggleBreakdown(cat)}
                           className="p-2 flex justify-between items-center hover:bg-gray-100/80 transition cursor-pointer select-none"
                         >
-                          <div className="flex items-center gap-1.5 overflow-hidden">
-                            <span className="text-gray-400 text-xs font-bold">
-                              {isOpen ? '▼' : '▶'}
-                            </span>
+                          <div className="flex items-center gap-1.5 font-bold truncate">
+                            <span className="text-gray-400 text-xs">{isOpen ? '▼' : '▶'}</span>
                             <span
                               onClick={(e) => {
                                 e.stopPropagation();
@@ -852,22 +807,21 @@ export default function Home() {
                             </button>
                           </div>
                         </div>
-
                         {isOpen && (
                           <div className="bg-white border-t border-gray-200 p-2 space-y-1.5 text-xs max-h-48 overflow-y-auto">
                             {catItems.length === 0 ? (
                               <p className="text-center text-gray-400 py-2 italic bg-gray-50 rounded">ここにドロップして移動</p>
                             ) : (
-                              catItems.map((subItem) => {
+                              catItems.map((subItem: ExpenseItem) => {
                                 const isSubChecked = selectedSubItemIds.includes(String(subItem.id));
                                 return (
                                   <div
                                     key={subItem.id}
                                     draggable
                                     onDragStart={(e) => handleSubItemDragStart(e, subItem.id)}
-                                    className={`flex justify-between items-center text-gray-600 border-b border-gray-100 pb-1.5 pt-0.5 cursor-grab active:cursor-grabbing group ${
+                                    className={`flex justify-between items-center text-gray-600 border-b border-gray-100 pb-1.5 pt-0.5 cursor-grab active:cursor-grabbing group px-2 rounded transition shadow-2xs ${
                                       isSubChecked ? 'bg-blue-50 border-blue-200' : 'hover:bg-blue-50/50'
-                                    } px-2 rounded transition shadow-2xs`}
+                                    }`}
                                     title="ドラッグして他のカテゴリに移動できます"
                                   >
                                     <div className="flex items-center gap-2 truncate pr-2">
@@ -880,7 +834,7 @@ export default function Home() {
                                         title="チェックして複数選択"
                                       />
                                       <div className="truncate pointer-events-none">
-                                        <span className="text-[10px] text-gray-400 mr-1">#{subItem.date}</span>
+                                        <span className="text-[10px] text-gray-400 mx-1">#{subItem.date}</span>
                                         <span className="font-medium text-gray-800">{subItem.store}</span>
                                       </div>
                                     </div>
@@ -905,7 +859,6 @@ export default function Home() {
                   })}
                 </div>
               </div>
-
               {/* カテゴリ追加フォーム */}
               <form onSubmit={handleAddCategory} className="pt-2 border-t border-gray-100 flex gap-2 shrink-0">
                 <input
@@ -924,7 +877,6 @@ export default function Home() {
               </form>
             </div>
           </div>
-
         </div>
 
         {/* 下部エリア: 月別データ欄 */}
@@ -934,16 +886,15 @@ export default function Home() {
             <p className="text-xs text-gray-400 text-center py-6">データがありません</p>
           ) : (
             <div className="overflow-x-auto pb-4 flex gap-6 items-center">
-              {sortedMonths.map((monthKey) => {
+              {sortedMonths.map((monthKey: string) => {
                 const monthItems = monthlyDataMap[monthKey];
-                const monthTotal = monthItems.reduce((sum, item) => sum + (Number(item.amount) || 0), 0);
-                const monthCatTotals = categories.reduce((acc, cat) => {
+                const monthTotal = monthItems.reduce((sum: number, item: ExpenseItem) => sum + (Number(item.amount) || 0), 0);
+                const monthCatTotals = categories.reduce((acc: Record<string, number>, cat: string) => {
                   acc[cat] = monthItems
-                    .filter((item) => item.category === cat)
-                    .reduce((sum, item) => sum + (Number(item.amount) || 0), 0);
+                    .filter((item: ExpenseItem) => item.category === cat)
+                    .reduce((sum: number, item: ExpenseItem) => sum + (Number(item.amount) || 0), 0);
                   return acc;
-                }, {} as Record<string, number>);
-
+                }, {});
                 const monthChartData = categories
                   .map((cat) => ({
                     name: cat,
@@ -968,9 +919,7 @@ export default function Home() {
                         <>
                           <ResponsiveContainer width="100%" height="100%">
                             <PieChart>
-                              <Tooltip
-                                formatter={(value: any) => `¥${Number(value).toLocaleString()}`}
-                              />
+                              <Tooltip formatter={(value: any) => `¥${Number(value).toLocaleString()}`} />
                               <Pie
                                 data={monthChartData}
                                 cx="50%"
@@ -1003,7 +952,6 @@ export default function Home() {
             </div>
           )}
         </div>
-
       </div>
     </main>
   );
